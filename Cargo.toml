@@ -1,6 +1,6 @@
 [package]
 name = "sqrub"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Kristofers Solo <dev@kristofers.xyz>"]
 description = "Format SQL inside sqlx query macros"
@@ -8,7 +8,16 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kristoferssolo/sqrub"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["cli", "formatter", "sql", "sqlx"]
-exclude = [".github/", ".gitignore", "justfile", "clippy.toml", "mise.toml", "mise.lock", "tests/", "benches/"]
+exclude = [
+    ".github/",
+    ".gitignore",
+    "justfile",
+    "clippy.toml",
+    "mise.toml",
+    "mise.lock",
+    "tests/",
+    "benches/",
+]
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }

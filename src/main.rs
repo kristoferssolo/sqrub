@@ -88,17 +88,7 @@ fn format_file<F: SqlFormatter>(
         RewriteError::Formatter(source) => Error::Formatter(source),
     })?;
 
-    let status = if rewrite.source == source {
-        Status::Unchanged
-    } else if check {
-        Status::WouldChange
-    } else {
-        fs::write(path, &rewrite.source).map_err(|source| Error::Write {
-            path: path.to_owned(),
-            source,
-        })?;
-        Status::Changed
-    };
+    let status = write_back(path, &source, &rewrite.source, check)?;
 
     let name = path.display().to_string();
     let source: Arc<str> = source.into();
@@ -109,6 +99,21 @@ fn format_file<F: SqlFormatter>(
         .collect();
 
     Ok(FileReport { status, failures })
+}
+
+/// Writes `rewritten` to `path` unless it matches `source` or `check` is set
+fn write_back(path: &Path, source: &str, rewritten: &str, check: bool) -> Result<Status, Error> {
+    if rewritten == source {
+        return Ok(Status::Unchanged);
+    }
+    if check {
+        return Ok(Status::WouldChange);
+    }
+    fs::write(path, rewritten).map_err(|source| Error::Write {
+        path: path.to_owned(),
+        source,
+    })?;
+    Ok(Status::Changed)
 }
 
 fn report<D: Diagnostic + Send + Sync + 'static>(diagnostic: D) {
@@ -156,11 +161,11 @@ impl From<Outcome> for ExitCode {
     /// 2 if anything failed, otherwise 1 if `--check` found changes
     fn from(outcome: Outcome) -> Self {
         if outcome.failed {
-            Self::from(2)
-        } else if outcome.would_change {
-            Self::from(1)
-        } else {
-            Self::SUCCESS
+            return Self::from(2);
         }
+        if outcome.would_change {
+            return Self::from(1);
+        }
+        Self::SUCCESS
     }
 }

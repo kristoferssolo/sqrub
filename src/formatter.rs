@@ -125,13 +125,18 @@ impl SqlFormatter for ExternalFormatter {
         let input = format!("{sql}\n");
 
         // Writing on a separate thread keeps a formatter that writes output
-        // before reading all its input from deadlocking on a full pipe
+        // before reading all its input from deadlocking on a full pipe. If the
+        // thread cannot start, dropping its closure closes stdin, so the child
+        // still exits and is reaped below
         let (written, output) = thread::scope(|scope| {
-            let writer = scope.spawn(move || stdin.write_all(input.as_bytes()));
+            let writer = thread::Builder::new()
+                .spawn_scoped(scope, move || stdin.write_all(input.as_bytes()));
             let output = child.wait_with_output();
-            let written = writer
-                .join()
-                .unwrap_or_else(|payload| panic::resume_unwind(payload));
+            let written = writer.and_then(|writer| {
+                writer
+                    .join()
+                    .unwrap_or_else(|payload| panic::resume_unwind(payload))
+            });
             (written, output)
         });
         let output = output?;

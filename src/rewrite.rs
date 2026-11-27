@@ -95,7 +95,7 @@ impl<F: SqlFormatter> Rewriter<F> {
         }
 
         let formatted = self.formatter.format(&sql)?;
-        let rendered = literal::render(&formatted, literal.indent, self.min_hashes)?;
+        let rendered = literal::render(&formatted, &literal.indent, self.min_hashes)?;
         Ok((rendered != literal.text).then_some(rendered))
     }
 }
@@ -137,10 +137,10 @@ mod tests {
                 fn main() {
                     sqlx::query!("SELECT 1");
                     sqlx::query_as!(User, r#"
-                    SELECT
-                        ID
-                    FROM USERS
-                    "#);
+                        SELECT
+                            ID
+                        FROM USERS
+                        "#);
                 }
                 "##
             )

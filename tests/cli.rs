@@ -6,6 +6,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 const UPPERCASE: &str = "tr '[:lower:]' '[:upper:]'";
+const ONE_WORD_PER_LINE: &str = r"tr ' ' '\n'";
 
 const UNFORMATTED: &str = r#"fn main() {
     sqlx::query!("select 1");
@@ -36,6 +37,16 @@ impl Project {
                 .current_dir(self.root.path())
                 .output()
         )
+    }
+
+    fn rustfmt(&self) {
+        let status = assert_ok!(
+            Command::new("rustfmt")
+                .args(["--edition", "2024", "src/main.rs"])
+                .current_dir(self.root.path())
+                .status()
+        );
+        assert!(status.success());
     }
 
     fn main_rs(&self) -> String {
@@ -100,4 +111,36 @@ fn missing_input_exits_2_after_formatting_the_rest() {
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr(&output).contains("failed to find Rust files"));
     assert_eq!(project.main_rs(), FORMATTED);
+}
+
+#[test]
+fn rustfmt_and_sqrub_agree_on_multi_line_literals() {
+    let project = Project::new(
+        r#"fn main() {
+    let user = sqlx::query_as!(User, "select id from users", id);
+}
+"#,
+    );
+    let output = project.sqrub(&["-f", ONE_WORD_PER_LINE]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    project.rustfmt();
+
+    assert_eq!(
+        project.main_rs(),
+        r#"fn main() {
+    let user = sqlx::query_as!(
+        User,
+        r"
+        select
+        id
+        from
+        users
+        ",
+        id
+    );
+}
+"#
+    );
+    let output = project.sqrub(&["--check", "-f", ONE_WORD_PER_LINE]);
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
 }

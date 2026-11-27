@@ -1,6 +1,7 @@
 //! Finding the SQL string literals inside sqlx query macros
 
 use crate::literal::leading_whitespace;
+use std::borrow::Cow;
 use std::ops::Range;
 use thiserror::Error;
 use tree_sitter::{LanguageError, Node, Parser};
@@ -30,8 +31,9 @@ pub struct SqlLiteral<'source> {
     pub span: Range<usize>,
     /// Source text of the literal
     pub text: &'source str,
-    /// Whitespace at the start of the line the literal begins on
-    pub indent: &'source str,
+    /// Indentation for the lines of the literal when it spans several, see
+    /// [`literal_indent`]
+    pub indent: Cow<'source, str>,
 }
 
 /// Parses Rust source and finds the SQL literals in query macros
@@ -90,9 +92,32 @@ fn sql_literal<'source>(invocation: Node<'_>, source: &'source str) -> Option<Sq
     let span = literal.byte_range();
     Some(SqlLiteral {
         text: source.get(span.clone())?,
-        indent: line_indent(source, span.start),
+        indent: literal_indent(source, span.start, tokens.start_byte()),
         span,
     })
+}
+
+/// Indentation of a multi-line literal once rustfmt has laid out its macro call
+///
+/// rustfmt moves a multi-line string argument onto its own line, one level
+/// deeper than the line that opens the call, and never changes the string's
+/// contents. Indenting for that position keeps sqrub and rustfmt from undoing
+/// each other. A literal that already starts its line keeps that line's
+/// indentation.
+fn literal_indent(source: &str, literal_start: usize, call_start: usize) -> Cow<'_, str> {
+    let line = line_before(source, literal_start);
+    let indent = leading_whitespace(line);
+    if indent == line {
+        return Cow::Borrowed(indent);
+    }
+
+    let call_indent = leading_whitespace(line_before(source, call_start));
+    let level = if call_indent.contains('\t') {
+        "\t"
+    } else {
+        "    "
+    };
+    Cow::Owned(format!("{call_indent}{level}"))
 }
 
 fn is_query_macro(invocation: Node<'_>, source: &str) -> bool {
@@ -103,11 +128,10 @@ fn is_query_macro(invocation: Node<'_>, source: &str) -> bool {
         .is_some_and(|name| QUERY_MACROS.contains(&name.trim()))
 }
 
-/// Indentation of the line containing byte `offset`
-fn line_indent(source: &str, offset: usize) -> &str {
+/// Text from the start of the line containing byte `offset` up to `offset`
+fn line_before(source: &str, offset: usize) -> &str {
     let before = source.get(..offset).unwrap_or_default();
-    let line = before.rsplit('\n').next().unwrap_or_default();
-    leading_whitespace(line)
+    before.rsplit('\n').next().unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -152,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn records_span_and_line_indent() {
+    fn records_span_and_text() {
         let source = "fn main() {\n    let row = sqlx::query!(\"SELECT 1\");\n}\n";
         let mut extractor = assert_ok!(Extractor::new());
         let literals = assert_ok!(extractor.sql_literals(source));
@@ -164,9 +188,30 @@ mod tests {
             [SqlLiteral {
                 span: start..end,
                 text: "\"SELECT 1\"",
-                indent: "    ",
+                indent: Cow::Owned("        ".to_owned()),
             }]
         );
+    }
+
+    #[rstest]
+    #[case::alone_on_its_line("    sqlx::query!(\n        \"SELECT 1\"\n    );", "        ")]
+    #[case::after_the_call("    sqlx::query!(\"SELECT 1\");", "        ")]
+    #[case::after_other_arguments(
+        "    sqlx::query_as!(\n        User, \"SELECT 1\"\n    );",
+        "        "
+    )]
+    #[case::in_a_let("    let row = sqlx::query!(\"SELECT 1\", id);", "        ")]
+    #[case::tabs("\tsqlx::query!(\"SELECT 1\");", "\t\t")]
+    #[case::top_level("sqlx::query!(\"SELECT 1\");", "    ")]
+    fn indents_where_rustfmt_places_the_literal(#[case] statement: &str, #[case] expected: &str) {
+        let source = format!("fn main() {{\n{statement}\n}}\n");
+        let mut extractor = assert_ok!(Extractor::new());
+        let literals = assert_ok!(extractor.sql_literals(&source));
+        let indents: Vec<&str> = literals
+            .iter()
+            .map(|literal| literal.indent.as_ref())
+            .collect();
+        assert_eq!(indents, [expected]);
     }
 
     #[test]

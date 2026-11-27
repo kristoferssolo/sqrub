@@ -3,6 +3,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 alias b := build
 alias c := check
 alias f := fmt
+alias i := install
 alias r := run
 alias t := test
 
@@ -12,7 +13,7 @@ default:
 
 # Run the full pre-commit workflow
 [group("checks")]
-ci: fmt check
+ci: audit fmt check
 
 # Run formatting, Clippy, test, and documentation checks
 [group("checks")]

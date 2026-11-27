@@ -25,6 +25,8 @@ jobs:
       version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-tags: true
       - name: Install Rust toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - name: Resolve and validate release metadata
@@ -37,13 +39,13 @@ jobs:
           set -euo pipefail
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-              version="$INPUT_VERSION"
+              version="${INPUT_VERSION#v}"
           else
               version="${REF_NAME#v}"
           fi
 
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Version must be a valid SemVer value without a leading v"
+              echo "::error::Version must be a valid SemVer value in the format v1.2.3"
               exit 1
           fi
 
@@ -53,6 +55,13 @@ jobs:
           )"
           if [[ "$manifest_version" != "$version" ]]; then
               echo "::error::sqrub is version $manifest_version, not $version"
+              exit 1
+          fi
+
+          # Builds use this commit, and GitHub releases an existing tag as it is
+          if tag_commit="$(git rev-parse --quiet --verify "refs/tags/v$version^{commit}")" &&
+              [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "::error::v$version points to $tag_commit, not $GITHUB_SHA"
               exit 1
           fi
 
@@ -69,7 +78,8 @@ jobs:
       - uses: actions-rust-lang/audit@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-  # Archive names and layout match `[package.metadata.binstall]` in Cargo.toml
+  # Archives follow a cargo-binstall default name, so `cargo binstall sqrub`
+  # finds them without `[package.metadata.binstall]`
   build-binaries:
     name: Build sqrub (${{ matrix.target }})
     needs: metadata
@@ -172,12 +182,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # A manual run can release a tag that does not exist yet
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-              git checkout -q --detach "$TAG"
-              git cliff --current --output "$NOTES_PATH"
+          # A manual run can release a tag that does not exist yet. A tag pushed since
+          # the metadata job checked must still be on this commit
+          if tag_commit="$(git rev-parse --quiet --verify "refs/tags/$TAG^{commit}")"; then
+              if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+                  echo "::error::$TAG points to $tag_commit, not $GITHUB_SHA"
+                  exit 1
+              fi
+              git cliff --current --strip all --output "$NOTES_PATH"
           else
-              git cliff --unreleased --tag "$TAG" --output "$NOTES_PATH"
+              git cliff --unreleased --tag "$TAG" --strip all --output "$NOTES_PATH"
           fi
       - name: Download sqrub binaries
         uses: actions/download-artifact@v8

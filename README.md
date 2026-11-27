@@ -92,6 +92,14 @@ and the error is reported with its location.
 | 1    | `--check` found files that would change |
 | 2    | A query, file or the formatter failed   |
 
+## Development
+
+```sh
+just setup  # install the Rust toolchain and the tools pinned in mise.toml
+just check  # formatting, Clippy, tests, and docs, as CI runs them
+just        # list all recipes
+```
+
 ## License
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or

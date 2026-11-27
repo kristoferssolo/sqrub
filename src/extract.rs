@@ -1,8 +1,7 @@
 //! Finding the SQL string literals inside sqlx query macros
 
 use crate::literal::leading_whitespace;
-use std::borrow::Cow;
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 use thiserror::Error;
 use tree_sitter::{LanguageError, Node, Parser};
 

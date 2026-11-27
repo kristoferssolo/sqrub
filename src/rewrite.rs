@@ -1,8 +1,10 @@
 //! Formatting every SQL literal in one Rust source file
 
-use crate::extract::{ExtractError, Extractor, SqlLiteral};
-use crate::formatter::{FormatterError, SqlFormatter};
-use crate::literal::{self, LiteralError};
+use crate::{
+    extract::{ExtractError, Extractor, SqlLiteral},
+    formatter::{FormatterError, SqlFormatter},
+    literal::{self, LiteralError},
+};
 use litrs::ParseError;
 use std::ops::Range;
 use thiserror::Error;

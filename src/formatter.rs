@@ -1,10 +1,13 @@
 //! Running the SQL formatter
 
-use std::io::{self, Write as _};
-use std::process::{Command, ExitStatus, Stdio};
-use std::str::FromStr;
-use std::string::FromUtf8Error;
-use std::{panic, thread};
+use std::{
+    io::{self, Write as _},
+    panic,
+    process::{Command, ExitStatus, Stdio},
+    str::FromStr,
+    string::FromUtf8Error,
+    thread,
+};
 use thiserror::Error;
 
 /// Something that formats SQL text

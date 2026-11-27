@@ -1,12 +1,12 @@
 //! Errors reported to the user
 
-use crate::extract::ExtractError;
-use crate::formatter::FormatterError;
-use crate::rewrite::{QueryError, QueryFailure};
+use crate::{
+    extract::ExtractError,
+    formatter::FormatterError,
+    rewrite::{QueryError, QueryFailure},
+};
 use miette::{Diagnostic, NamedSource, SourceSpan};
-use std::io;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{io, path::PathBuf, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]

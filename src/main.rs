@@ -8,17 +8,21 @@ mod formatter;
 mod literal;
 mod rewrite;
 
-use crate::cli::{Cli, Level};
-use crate::error::{Error, QueryDiagnostic};
-use crate::formatter::{ExternalFormatter, SqlFormatter};
-use crate::rewrite::{RewriteError, Rewriter};
+use crate::{
+    cli::{Cli, Level},
+    error::{Error, QueryDiagnostic},
+    formatter::{ExternalFormatter, SqlFormatter},
+    rewrite::{RewriteError, Rewriter},
+};
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, Report};
-use std::fmt::{self, Display, Formatter};
-use std::fs;
-use std::path::Path;
-use std::process::ExitCode;
-use std::sync::Arc;
+use std::{
+    fmt::{self, Display, Formatter},
+    fs,
+    path::Path,
+    process::ExitCode,
+    sync::Arc,
+};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();

@@ -206,10 +206,10 @@ mod tests {
         let source = format!("fn main() {{\n{statement}\n}}\n");
         let mut extractor = assert_ok!(Extractor::new());
         let literals = assert_ok!(extractor.sql_literals(&source));
-        let indents: Vec<&str> = literals
+        let indents = literals
             .iter()
             .map(|literal| literal.indent.as_ref())
-            .collect();
+            .collect::<Vec<&str>>();
         assert_eq!(indents, [expected]);
     }
 

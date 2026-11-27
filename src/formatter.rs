@@ -144,10 +144,9 @@ impl SqlFormatter for ExternalFormatter {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use claims::{assert_err_eq, assert_matches, assert_ok, assert_ok_eq};
     use rstest::rstest;
-
-    use super::*;
 
     fn formatter(command: &str, ignore_exit_code: bool) -> ExternalFormatter {
         ExternalFormatter::new(assert_ok!(command.parse()), ignore_exit_code)

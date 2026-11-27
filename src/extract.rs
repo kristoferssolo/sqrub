@@ -112,10 +112,9 @@ fn line_indent(source: &str, offset: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use claims::assert_ok;
     use rstest::rstest;
-
-    use super::*;
 
     fn texts(source: &str) -> Vec<&str> {
         let mut extractor = assert_ok!(Extractor::new());

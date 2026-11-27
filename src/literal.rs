@@ -135,10 +135,9 @@ fn indent_lines(sql: &str, indent: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use claims::{assert_err, assert_err_eq, assert_ok_eq};
     use rstest::rstest;
-
-    use super::*;
 
     #[rstest]
     #[case::plain(r#""SELECT 1""#, "SELECT 1")]

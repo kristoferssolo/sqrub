@@ -3,7 +3,7 @@
 use std::{
     io::{self, Write as _},
     panic,
-    process::{Command, ExitStatus, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     str::FromStr,
     string::FromUtf8Error,
     thread,
@@ -125,20 +125,17 @@ impl SqlFormatter for ExternalFormatter {
         let input = format!("{sql}\n");
 
         // Writing on a separate thread keeps a formatter that writes output
-        // before reading all its input from deadlocking on a full pipe. If the
-        // thread cannot start, dropping its closure closes stdin, so the child
-        // still exits and is reaped below
+        // before reading all its input from deadlocking on a full pipe
         let (written, output) = thread::scope(|scope| {
             let writer = thread::Builder::new()
-                .spawn_scoped(scope, move || stdin.write_all(input.as_bytes()));
+                .spawn_scoped(scope, move || stdin.write_all(input.as_bytes()))
+                .inspect_err(|_| kill(&mut child))?;
             let output = child.wait_with_output();
-            let written = writer.and_then(|writer| {
-                writer
-                    .join()
-                    .unwrap_or_else(|payload| panic::resume_unwind(payload))
-            });
-            (written, output)
-        });
+            let written = writer
+                .join()
+                .unwrap_or_else(|payload| panic::resume_unwind(payload));
+            Ok::<_, io::Error>((written, output))
+        })?;
         let output = output?;
 
         // A formatter may exit without reading stdin; its status explains why
@@ -161,6 +158,14 @@ impl SqlFormatter for ExternalFormatter {
         }
         Ok(formatted)
     }
+}
+
+/// Stops a formatter whose input can't be written, since one that keeps working
+/// after EOF would otherwise hold up the run
+fn kill(child: &mut Child) {
+    // The startup error is what gets reported, so these errors add nothing
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Runs `attempt` until it succeeds or fails for a reason other than the OS

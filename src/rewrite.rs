@@ -6,6 +6,7 @@ use crate::{
     literal::{self, LiteralError},
 };
 use litrs::ParseError;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::ops::Range;
 use thiserror::Error;
 
@@ -73,17 +74,28 @@ impl<F: SqlFormatter> Rewriter<F> {
     /// started
     pub fn rewrite(&mut self, source: &str) -> Result<Rewrite, RewriteError> {
         let literals = self.extractor.sql_literals(source)?;
+        let (formatter, min_hashes) = (&self.formatter, self.min_hashes);
+        // Each query runs its own formatter process, so they run in parallel. A
+        // formatter that cannot start fails every query, so it stops the rest
+        let results = literals
+            .par_iter()
+            .map(
+                |literal| match format_literal(formatter, min_hashes, literal) {
+                    Err(QueryError::Format(error @ FormatterError::Spawn { .. })) => Err(error),
+                    result => Ok(result),
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(RewriteError::Formatter)?;
+
         let mut output = source.to_owned();
         let mut failures = Vec::new();
 
         // Replacing from the end keeps the spans of earlier literals valid
-        for literal in literals.iter().rev() {
-            match self.format_literal(literal) {
+        for (literal, result) in literals.iter().zip(results).rev() {
+            match result {
                 Ok(Some(text)) => output.replace_range(literal.span.clone(), &text),
                 Ok(None) => {}
-                Err(QueryError::Format(error @ FormatterError::Spawn { .. })) => {
-                    return Err(RewriteError::Formatter(error));
-                }
                 Err(error) => failures.push(QueryFailure {
                     span: literal.span.clone(),
                     error,
@@ -97,24 +109,28 @@ impl<F: SqlFormatter> Rewriter<F> {
             failures,
         })
     }
+}
 
-    /// Returns the replacement literal, or `None` when it would not change
-    fn format_literal(&self, literal: &SqlLiteral<'_>) -> Result<Option<String>, QueryError> {
-        let sql = literal::decode(literal.text)?;
-        if sql.trim().is_empty() {
-            return Ok(None);
-        }
-
-        let formatted = self.formatter.format(&sql)?;
-        let rendered = literal::render(&formatted, &literal.indent, self.min_hashes)?;
-        Ok((rendered != literal.text).then_some(rendered))
+/// Returns the replacement literal, or `None` when it would not change
+fn format_literal<F: SqlFormatter>(
+    sql_formatter: &F,
+    min_hashes: u8,
+    literal: &SqlLiteral<'_>,
+) -> Result<Option<String>, QueryError> {
+    let sql = literal::decode(literal.text)?;
+    if sql.trim().is_empty() {
+        return Ok(None);
     }
+
+    let formatted = sql_formatter.format(&sql)?;
+    let rendered = literal::render(&formatted, &literal.indent, min_hashes)?;
+    Ok((rendered != literal.text).then_some(rendered))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claims::{assert_matches, assert_ok};
+    use claims::{assert_matches, assert_ok, assert_some};
     use std::io;
 
     #[expect(
@@ -188,6 +204,33 @@ mod tests {
             [QueryFailure { span, error: QueryError::Format(FormatterError::EmptyOutput) }]
                 if *span == (start..end)
         );
+    }
+
+    #[test]
+    fn reports_failures_in_source_order() {
+        let queries = (0..25)
+            .map(|index| format!(r#"sqlx::query!("bad{index}"); sqlx::query!("good{index}");"#))
+            .collect::<Vec<_>>()
+            .join("\n    ");
+        let source = format!("fn main() {{\n    {queries}\n}}");
+        let formatter = |sql: &str| {
+            if sql.starts_with("bad") {
+                return Err(FormatterError::EmptyOutput);
+            }
+            uppercase(sql)
+        };
+        let rewrite = assert_ok!(rewrite(formatter, &source));
+
+        let failed = rewrite
+            .failures
+            .iter()
+            .map(|failure| assert_some!(source.get(failure.span.clone())))
+            .collect::<Vec<_>>();
+        let expected = (0..25)
+            .map(|index| format!(r#""bad{index}""#))
+            .collect::<Vec<_>>();
+        assert_eq!(failed, expected);
+        assert!(!rewrite.source.contains("\"good"));
     }
 
     #[test]

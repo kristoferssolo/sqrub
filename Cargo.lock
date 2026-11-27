@@ -1013,6 +1013,7 @@ dependencies = [
  "ignore",
  "litrs",
  "miette",
+ "rayon",
  "rstest",
  "shlex",
  "tempfile",

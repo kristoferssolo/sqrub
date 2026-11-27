@@ -1,12 +1,13 @@
 //! Errors reported to the user
 
-use crate::extract::ExtractError;
-use crate::formatter::FormatterError;
-use crate::rewrite::{QueryError, QueryFailure};
+use crate::{
+    extract::ExtractError,
+    formatter::FormatterError,
+    rewrite::{QueryError, QueryFailure},
+};
 use miette::{Diagnostic, NamedSource, SourceSpan};
-use std::io;
-use std::path::PathBuf;
-use std::sync::Arc;
+use rayon::ThreadPoolBuildError;
+use std::{io, path::PathBuf, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
@@ -16,6 +17,8 @@ pub enum Error {
     #[error("failed to run the formatter")]
     #[diagnostic(help("check that the command is installed and on PATH"))]
     Formatter(#[source] FormatterError),
+    #[error("failed to start the formatter threads")]
+    ThreadPool(#[source] ThreadPoolBuildError),
     #[error("failed to find Rust files")]
     Walk(#[from] ignore::Error),
     #[error("failed to read {}", path.display())]
@@ -40,6 +43,7 @@ pub enum Error {
 
 impl Error {
     /// Whether the error stops the whole run instead of only one file
+    #[must_use]
     pub const fn is_fatal(&self) -> bool {
         matches!(self, Self::Grammar(_) | Self::Formatter(_))
     }
@@ -61,6 +65,7 @@ pub struct QueryDiagnostic {
 }
 
 impl QueryDiagnostic {
+    #[must_use]
     pub fn new(source_code: NamedSource<Arc<str>>, failure: QueryFailure) -> Self {
         let stderr = match &failure.error {
             QueryError::Format(FormatterError::Failed { stderr, .. }) => {

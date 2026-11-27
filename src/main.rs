@@ -1,26 +1,28 @@
 //! Formats the SQL inside sqlx query macros with an external formatter
 
 mod cli;
-mod error;
-mod extract;
-mod files;
-mod formatter;
-mod literal;
-mod rewrite;
 
 use crate::cli::{Cli, Level};
-use crate::error::{Error, QueryDiagnostic};
-use crate::formatter::{ExternalFormatter, SqlFormatter};
-use crate::rewrite::{RewriteError, Rewriter};
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, Report};
-use std::fmt::{self, Display, Formatter};
-use std::fs;
-use std::path::Path;
-use std::process::ExitCode;
-use std::sync::Arc;
+use rayon::ThreadPoolBuilder;
+use rlimit::increase_nofile_limit;
+use sqrub::{
+    Error, ExternalFormatter, QueryDiagnostic, RewriteError, Rewriter, SqlFormatter, rust_files,
+};
+use std::{
+    fmt::{self, Display, Formatter},
+    fs,
+    path::Path,
+    process::ExitCode,
+    sync::Arc,
+};
 
 fn main() -> ExitCode {
+    // Each formatter running in parallel holds about six descriptors, which
+    // can outgrow the default soft limit on machines with many cores. If this
+    // fails, a formatter that can't start reports it
+    let _ = increase_nofile_limit(u64::MAX);
     let cli = Cli::parse();
     match run(&cli) {
         Ok(outcome) => outcome.into(),
@@ -32,12 +34,18 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<Outcome, Error> {
+    if let Some(jobs) = cli.jobs {
+        ThreadPoolBuilder::new()
+            .num_threads(jobs.get())
+            .build_global()
+            .map_err(Error::ThreadPool)?;
+    }
     let formatter = ExternalFormatter::new(cli.formatter.clone(), cli.ignore_exit_code);
     let mut rewriter = Rewriter::new(formatter, cli.min_hashes).map_err(Error::Grammar)?;
     let level = cli.verbosity.level();
     let mut outcome = Outcome::default();
 
-    for entry in files::rust_files(&cli.inputs) {
+    for entry in rust_files(&cli.inputs) {
         let result = entry.map_err(Error::from).and_then(|path| {
             let file = format_file(&path, &mut rewriter, cli.check)?;
             Ok((path, file))
@@ -84,17 +92,7 @@ fn format_file<F: SqlFormatter>(
         RewriteError::Formatter(source) => Error::Formatter(source),
     })?;
 
-    let status = if rewrite.source == source {
-        Status::Unchanged
-    } else if check {
-        Status::WouldChange
-    } else {
-        fs::write(path, &rewrite.source).map_err(|source| Error::Write {
-            path: path.to_owned(),
-            source,
-        })?;
-        Status::Changed
-    };
+    let status = write_back(path, &source, &rewrite.source, check)?;
 
     let name = path.display().to_string();
     let source: Arc<str> = source.into();
@@ -105,6 +103,21 @@ fn format_file<F: SqlFormatter>(
         .collect();
 
     Ok(FileReport { status, failures })
+}
+
+/// Writes `rewritten` to `path` unless it matches `source` or `check` is set
+fn write_back(path: &Path, source: &str, rewritten: &str, check: bool) -> Result<Status, Error> {
+    if rewritten == source {
+        return Ok(Status::Unchanged);
+    }
+    if check {
+        return Ok(Status::WouldChange);
+    }
+    fs::write(path, rewritten).map_err(|source| Error::Write {
+        path: path.to_owned(),
+        source,
+    })?;
+    Ok(Status::Changed)
 }
 
 fn report<D: Diagnostic + Send + Sync + 'static>(diagnostic: D) {
@@ -152,11 +165,11 @@ impl From<Outcome> for ExitCode {
     /// 2 if anything failed, otherwise 1 if `--check` found changes
     fn from(outcome: Outcome) -> Self {
         if outcome.failed {
-            Self::from(2)
-        } else if outcome.would_change {
-            Self::from(1)
-        } else {
-            Self::SUCCESS
+            return Self::from(2);
         }
+        if outcome.would_change {
+            return Self::from(1);
+        }
+        Self::SUCCESS
     }
 }

@@ -1,8 +1,8 @@
 //! Command-line arguments
 
-use crate::formatter::ShellCommand;
 use clap::{Args, Parser};
-use std::path::PathBuf;
+use sqrub::ShellCommand;
+use std::{num::NonZeroUsize, path::PathBuf};
 
 /// Format the SQL inside sqlx query macros with an external formatter
 #[derive(Debug, Parser)]
@@ -27,6 +27,11 @@ pub struct Cli {
     /// status
     #[arg(long)]
     pub ignore_exit_code: bool,
+
+    /// Number of formatter commands to run at once; defaults to one per CPU
+    /// core
+    #[arg(short, long, value_name = "N")]
+    pub jobs: Option<NonZeroUsize>,
 
     /// Minimum number of `#`s around raw string literals sqrub writes
     #[arg(long, value_name = "N", default_value_t = 0)]

@@ -59,12 +59,22 @@ sqrub --formatter "pg_format -"
 sqrub --formatter "sqlfluff fix --dialect postgres -" --ignore-exit-code
 ```
 
+sqrub runs the formatter for a file's queries in parallel, one process per CPU
+core. If your formatter command cannot run more than once at a time, such as a
+wrapper that uses a fixed scratch file or lock, or starting it fails with "Too
+many open files", lower `--jobs`:
+
+```sh
+sqrub --formatter ./format-sql.sh --jobs 1
+```
+
 | Option                        | Effect                                                             |
 | ----------------------------- | ------------------------------------------------------------------ |
 | `-f`, `--formatter <COMMAND>` | Formatter to run for each query (required)                         |
 | `--check`                     | Report files that would change without writing them                |
 | `--min-hashes <N>`            | Write raw strings with at least `N` `#`s, such as `r#"..."#` for 1 |
 | `--ignore-exit-code`          | Accept formatter output even when it exits non-zero                |
+| `-j`, `--jobs <N>`            | Run at most `N` formatters at once, one per CPU core by default    |
 | `-q`, `--quiet`               | Print only errors                                                  |
 | `-v`, `--verbose`             | Also list files that are already formatted                         |
 

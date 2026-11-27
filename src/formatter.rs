@@ -1,20 +1,32 @@
 //! Running the SQL formatter
 
-use std::io::{self, Write as _};
-use std::process::{Command, ExitStatus, Stdio};
-use std::str::FromStr;
-use std::string::FromUtf8Error;
-use std::{panic, thread};
+use std::{
+    io::{self, Write as _},
+    panic,
+    process::{Child, Command, ExitStatus, Stdio},
+    str::FromStr,
+    string::FromUtf8Error,
+    thread,
+    time::Duration,
+};
 use thiserror::Error;
 
-/// Something that formats SQL text
-pub trait SqlFormatter {
+/// Spawn attempts before a transient spawn failure is reported
+const SPAWN_ATTEMPTS: u32 = 8;
+/// Delay before the first spawn retry, doubled after each one
+const SPAWN_RETRY_DELAY: Duration = Duration::from_millis(10);
+
+/// Something that formats SQL text, from several threads at once
+pub trait SqlFormatter: Sync {
+    /// # Errors
+    ///
+    /// Returns an error if the SQL cannot be formatted
     fn format(&self, sql: &str) -> Result<String, FormatterError>;
 }
 
 impl<F> SqlFormatter for F
 where
-    F: Fn(&str) -> Result<String, FormatterError>,
+    F: Fn(&str) -> Result<String, FormatterError> + Sync,
 {
     fn format(&self, sql: &str) -> Result<String, FormatterError> {
         self(sql)
@@ -80,6 +92,7 @@ impl ExternalFormatter {
     /// With `ignore_exit_code`, output from a command that exits non-zero is
     /// still accepted, for formatters that report unfixable lint violations
     /// that way
+    #[must_use]
     pub const fn new(command: ShellCommand, ignore_exit_code: bool) -> Self {
         Self {
             command,
@@ -91,15 +104,18 @@ impl ExternalFormatter {
 impl SqlFormatter for ExternalFormatter {
     fn format(&self, sql: &str) -> Result<String, FormatterError> {
         let ShellCommand { program, args } = &self.command;
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|source| FormatterError::Spawn {
-                program: program.clone(),
-                source,
+            .stderr(Stdio::piped());
+        let mut child =
+            retry_transient(|| command.spawn(), SPAWN_RETRY_DELAY).map_err(|source| {
+                FormatterError::Spawn {
+                    program: program.clone(),
+                    source,
+                }
             })?;
 
         let mut stdin = child
@@ -111,13 +127,15 @@ impl SqlFormatter for ExternalFormatter {
         // Writing on a separate thread keeps a formatter that writes output
         // before reading all its input from deadlocking on a full pipe
         let (written, output) = thread::scope(|scope| {
-            let writer = scope.spawn(move || stdin.write_all(input.as_bytes()));
+            let writer = thread::Builder::new()
+                .spawn_scoped(scope, move || stdin.write_all(input.as_bytes()))
+                .inspect_err(|_| kill(&mut child))?;
             let output = child.wait_with_output();
             let written = writer
                 .join()
                 .unwrap_or_else(|payload| panic::resume_unwind(payload));
-            (written, output)
-        });
+            Ok::<_, io::Error>((written, output))
+        })?;
         let output = output?;
 
         // A formatter may exit without reading stdin; its status explains why
@@ -142,10 +160,47 @@ impl SqlFormatter for ExternalFormatter {
     }
 }
 
+/// Stops a formatter whose input can't be written, since one that keeps working
+/// after EOF would otherwise hold up the run
+fn kill(child: &mut Child) {
+    // The startup error is what gets reported, so these errors add nothing
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Runs `attempt` until it succeeds or fails for a reason other than the OS
+/// being temporarily out of processes (`EAGAIN`) or memory (`ENOMEM`), waiting
+/// `delay` before the first retry and doubling it after each one
+///
+/// Fast formatters spawned in parallel can outpace the kernel reclaiming
+/// exited processes, notably on macOS.
+fn retry_transient<T>(
+    mut attempt: impl FnMut() -> io::Result<T>,
+    mut delay: Duration,
+) -> io::Result<T> {
+    for _ in 1..SPAWN_ATTEMPTS {
+        match attempt() {
+            Err(error) if is_transient(&error) => {
+                thread::sleep(delay);
+                delay = delay.saturating_mul(2);
+            }
+            result => return result,
+        }
+    }
+    attempt()
+}
+
+fn is_transient(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::OutOfMemory
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claims::{assert_err_eq, assert_matches, assert_ok, assert_ok_eq};
+    use claims::{assert_err, assert_err_eq, assert_matches, assert_ok, assert_ok_eq};
     use rstest::rstest;
 
     fn formatter(command: &str, ignore_exit_code: bool) -> ExternalFormatter {
@@ -206,6 +261,35 @@ mod tests {
         // `true` exits without reading stdin, so this also covers the broken pipe
         let result = formatter("true", false).format("SELECT 1");
         assert_matches!(result, Err(FormatterError::EmptyOutput));
+    }
+
+    #[rstest]
+    #[case::would_block(io::ErrorKind::WouldBlock)]
+    #[case::out_of_memory(io::ErrorKind::OutOfMemory)]
+    fn retries_transient_spawn_failures(#[case] kind: io::ErrorKind) {
+        let mut attempts = [Err(kind.into()), Err(kind.into()), Ok("spawned")].into_iter();
+        let result = retry_transient(|| attempts.next().unwrap(), Duration::ZERO);
+        assert_ok_eq!(result, "spawned");
+        assert_eq!(attempts.len(), 0);
+    }
+
+    #[test]
+    fn reports_other_spawn_failures_without_retrying() {
+        let mut attempts = [Err(io::ErrorKind::NotFound.into()), Ok("spawned")].into_iter();
+        let result = retry_transient(|| attempts.next().unwrap(), Duration::ZERO);
+        assert_err!(result);
+        assert_eq!(attempts.len(), 1);
+    }
+
+    #[test]
+    fn stops_retrying_after_the_last_attempt() {
+        let mut attempts = (0..=SPAWN_ATTEMPTS)
+            .map(|_| Err::<(), _>(io::ErrorKind::WouldBlock.into()))
+            .collect::<Vec<_>>()
+            .into_iter();
+        let result = retry_transient(|| attempts.next().unwrap(), Duration::ZERO);
+        assert_err!(result);
+        assert_eq!(attempts.len(), 1);
     }
 
     #[test]

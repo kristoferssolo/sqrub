@@ -1,6 +1,6 @@
 [package]
 name = "sqrub"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Kristofers Solo <dev@kristofers.xyz>"]
 description = "Format SQL inside sqlx query macros"
@@ -8,13 +8,24 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kristoferssolo/sqrub"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["cli", "formatter", "sql", "sqlx"]
-exclude = [".github/", ".gitignore", "justfile", "clippy.toml", "mise.toml", "mise.lock", "tests/"]
+exclude = [
+    ".github/",
+    ".gitignore",
+    "justfile",
+    "clippy.toml",
+    "mise.toml",
+    "mise.lock",
+    "tests/",
+    "benches/",
+]
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
 ignore = "0.4"
 litrs = "1.1"
 miette = { version = "7.6", features = ["fancy", "derive"] }
+rayon = "1.12"
+rlimit = "0.12"
 shlex = "2"
 thiserror = "2"
 tree-sitter = "0.27"
@@ -22,8 +33,21 @@ tree-sitter-rust = "0.24"
 
 [dev-dependencies]
 claims = "0.8"
+criterion = "0.8"
 rstest = "0.29"
 tempfile = "3"
+
+# libtest rejects Criterion's flags, so only the benches run under `cargo bench`
+[lib]
+bench = false
+
+[[bin]]
+name = "sqrub"
+bench = false
+
+[[bench]]
+name = "rewrite"
+harness = false
 
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }

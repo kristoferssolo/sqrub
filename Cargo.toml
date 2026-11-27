@@ -1,0 +1,43 @@
+[package]
+name = "sqrub"
+version = "0.1.0"
+edition = "2024"
+authors = ["Kristofers Solo <dev@kristofers.xyz>"]
+description = "Format SQL inside sqlx query macros"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kristoferssolo/sqrub"
+categories = ["command-line-utilities", "development-tools"]
+keywords = ["cli", "formatter", "sql", "sqlx"]
+exclude = [".github/", ".gitignore", "justfile", "clippy.toml", "mise.toml", "mise.lock", "tests/"]
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+ignore = "0.4"
+litrs = "1.1"
+miette = { version = "7.6", features = ["fancy", "derive"] }
+shlex = "2"
+thiserror = "2"
+tree-sitter = "0.27"
+tree-sitter-rust = "0.24"
+
+[dev-dependencies]
+claims = "0.8"
+rstest = "0.29"
+tempfile = "3"
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"

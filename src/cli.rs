@@ -1,7 +1,7 @@
 //! Command-line arguments
 
-use crate::formatter::ShellCommand;
 use clap::{Args, Parser};
+use sqrub::ShellCommand;
 use std::path::PathBuf;
 
 /// Format the SQL inside sqlx query macros with an external formatter

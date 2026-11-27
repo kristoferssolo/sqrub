@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kristoferssolo/sqrub"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["cli", "formatter", "sql", "sqlx"]
-exclude = [".github/", ".gitignore", "justfile", "clippy.toml", "mise.toml", "mise.lock", "tests/"]
+exclude = [".github/", ".gitignore", "justfile", "clippy.toml", "mise.toml", "mise.lock", "tests/", "benches/"]
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
@@ -22,8 +22,13 @@ tree-sitter-rust = "0.24"
 
 [dev-dependencies]
 claims = "0.8"
+criterion = "0.8"
 rstest = "0.29"
 tempfile = "3"
+
+[[bench]]
+name = "rewrite"
+harness = false
 
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }

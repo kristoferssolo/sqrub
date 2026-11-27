@@ -40,6 +40,7 @@ pub enum Error {
 
 impl Error {
     /// Whether the error stops the whole run instead of only one file
+    #[must_use]
     pub const fn is_fatal(&self) -> bool {
         matches!(self, Self::Grammar(_) | Self::Formatter(_))
     }
@@ -61,6 +62,7 @@ pub struct QueryDiagnostic {
 }
 
 impl QueryDiagnostic {
+    #[must_use]
     pub fn new(source_code: NamedSource<Arc<str>>, failure: QueryFailure) -> Self {
         let stderr = match &failure.error {
             QueryError::Format(FormatterError::Failed { stderr, .. }) => {

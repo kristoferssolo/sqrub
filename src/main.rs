@@ -1,21 +1,13 @@
 //! Formats the SQL inside sqlx query macros with an external formatter
 
 mod cli;
-mod error;
-mod extract;
-mod files;
-mod formatter;
-mod literal;
-mod rewrite;
 
-use crate::{
-    cli::{Cli, Level},
-    error::{Error, QueryDiagnostic},
-    formatter::{ExternalFormatter, SqlFormatter},
-    rewrite::{RewriteError, Rewriter},
-};
+use crate::cli::{Cli, Level};
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, Report};
+use sqrub::{
+    Error, ExternalFormatter, QueryDiagnostic, RewriteError, Rewriter, SqlFormatter, rust_files,
+};
 use std::{
     fmt::{self, Display, Formatter},
     fs,
@@ -41,7 +33,7 @@ fn run(cli: &Cli) -> Result<Outcome, Error> {
     let level = cli.verbosity.level();
     let mut outcome = Outcome::default();
 
-    for entry in files::rust_files(&cli.inputs) {
+    for entry in rust_files(&cli.inputs) {
         let result = entry.map_err(Error::from).and_then(|path| {
             let file = format_file(&path, &mut rewriter, cli.check)?;
             Ok((path, file))

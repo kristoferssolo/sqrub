@@ -12,6 +12,9 @@ use thiserror::Error;
 
 /// Something that formats SQL text
 pub trait SqlFormatter {
+    /// # Errors
+    ///
+    /// Returns an error if the SQL cannot be formatted
     fn format(&self, sql: &str) -> Result<String, FormatterError>;
 }
 
@@ -83,6 +86,7 @@ impl ExternalFormatter {
     /// With `ignore_exit_code`, output from a command that exits non-zero is
     /// still accepted, for formatters that report unfixable lint violations
     /// that way
+    #[must_use]
     pub const fn new(command: ShellCommand, ignore_exit_code: bool) -> Self {
         Self {
             command,

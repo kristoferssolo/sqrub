@@ -54,6 +54,9 @@ pub struct Rewriter<F> {
 }
 
 impl<F: SqlFormatter> Rewriter<F> {
+    /// # Errors
+    ///
+    /// Returns an error if the Rust grammar fails to load
     pub fn new(formatter: F, min_hashes: u8) -> Result<Self, ExtractError> {
         Ok(Self {
             extractor: Extractor::new()?,
@@ -62,6 +65,12 @@ impl<F: SqlFormatter> Rewriter<F> {
         })
     }
 
+    /// Formats every query in `source`, leaving the ones that fail unchanged
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `source` cannot be parsed or the formatter cannot be
+    /// started
     pub fn rewrite(&mut self, source: &str) -> Result<Rewrite, RewriteError> {
         let literals = self.extractor.sql_literals(source)?;
         let mut output = source.to_owned();

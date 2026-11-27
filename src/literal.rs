@@ -1,5 +1,6 @@
-//! Writing SQL back into Rust string literals
+//! Converting between Rust string literals and the SQL they hold
 
+use litrs::{ParseError, StringLit};
 use thiserror::Error;
 
 /// Rust rejects raw string literals delimited by more `#`s than this
@@ -11,6 +12,63 @@ pub enum LiteralError {
     BareCarriageReturn,
     #[error("SQL needs {needed} `#`s around a raw string, but Rust allows at most {MAX_HASHES}")]
     TooManyHashes { needed: usize },
+}
+
+/// Extracts the SQL from a string literal's source text, ready for a formatter
+///
+/// Drops the newline after the opening quote, the whitespace before the
+/// closing quote, and the indentation every line shares, so the formatter sees
+/// the SQL as if it started at the beginning of a file.
+pub fn decode(source: &str) -> Result<String, ParseError> {
+    // rustc reads CRLF as LF, but litrs rejects any carriage return
+    let literal = StringLit::parse(source.replace("\r\n", "\n"))?;
+    let value = literal.value();
+    let value = value.strip_prefix('\n').unwrap_or(value);
+    let value = match value.rsplit_once('\n') {
+        Some((body, last)) if is_blank(last) => body,
+        _ => value,
+    };
+    Ok(dedent(value))
+}
+
+/// Leading spaces and tabs of `line`
+pub fn leading_whitespace(line: &str) -> &str {
+    let rest = line.trim_start_matches([' ', '\t']);
+    line.strip_suffix(rest).unwrap_or_default()
+}
+
+fn is_blank(line: &str) -> bool {
+    line.trim_start_matches([' ', '\t']).is_empty()
+}
+
+/// Strips the indentation shared by every non-blank line and empties blank ones
+fn dedent(sql: &str) -> String {
+    let indent = sql
+        .lines()
+        .filter(|line| !is_blank(line))
+        .map(leading_whitespace)
+        .reduce(common_prefix)
+        .unwrap_or_default();
+
+    sql.lines()
+        .map(|line| {
+            if is_blank(line) {
+                ""
+            } else {
+                line.strip_prefix(indent).unwrap_or(line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn common_prefix<'a>(left: &'a str, right: &str) -> &'a str {
+    let shared = left
+        .bytes()
+        .zip(right.bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    left.get(..shared).unwrap_or_default()
 }
 
 /// Renders formatted SQL as a Rust string literal
@@ -77,10 +135,37 @@ fn indent_lines(sql: &str, indent: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use claims::{assert_err_eq, assert_ok_eq};
+    use claims::{assert_err, assert_err_eq, assert_ok_eq};
     use rstest::rstest;
 
     use super::*;
+
+    #[rstest]
+    #[case::plain(r#""SELECT 1""#, "SELECT 1")]
+    #[case::indented_raw_block("r#\"\n        SELECT\n            1\n        \"#", "SELECT\n    1")]
+    #[case::first_line_after_quote("\"SELECT\n    1\"", "SELECT\n    1")]
+    #[case::blank_lines_emptied("r\"\n    SELECT\n  \n    1\n    \"", "SELECT\n\n1")]
+    #[case::tab_indent("r\"\n\t\tSELECT\n\t\t\t1\n\t\t\"", "SELECT\n\t1")]
+    #[case::escapes(r#""SELECT '\\d'""#, r"SELECT '\d'")]
+    #[case::line_continuation("\"SELECT \\\n    1\"", "SELECT 1")]
+    #[case::crlf("r\"\r\n    SELECT\r\n      1\r\n    \"", "SELECT\n  1")]
+    fn decodes(#[case] source: &str, #[case] expected: &str) {
+        assert_ok_eq!(decode(source), expected);
+    }
+
+    #[test]
+    fn rejects_byte_strings() {
+        assert_err!(decode(r#"b"SELECT 1""#));
+    }
+
+    #[rstest]
+    #[case::multi_line("r#\"\n    SELECT\n      1\n    \"#", 1)]
+    #[case::plain(r#""SELECT 1""#, 0)]
+    #[case::raw_single_line(r#"r"SELECT '\d'""#, 0)]
+    fn decode_then_render_round_trips(#[case] source: &str, #[case] min_hashes: u8) {
+        let sql = decode(source).unwrap();
+        assert_ok_eq!(render(&sql, "    ", min_hashes), source);
+    }
 
     #[rstest]
     #[case::plain_single_line("SELECT 1\n", 1, r#""SELECT 1""#)]

@@ -1,11 +1,9 @@
 //! Finding the SQL string literals inside sqlx query macros
 
+use crate::literal::leading_whitespace;
 use std::ops::Range;
-
 use thiserror::Error;
 use tree_sitter::{LanguageError, Node, Parser};
-
-use crate::literal::leading_whitespace;
 
 /// Macros whose first string literal is inline SQL, matched by last path segment
 const QUERY_MACROS: [&str; 6] = [

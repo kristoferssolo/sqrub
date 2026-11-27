@@ -27,6 +27,14 @@ criterion = "0.8"
 rstest = "0.29"
 tempfile = "3"
 
+# libtest rejects Criterion's flags, so only the benches run under `cargo bench`
+[lib]
+bench = false
+
+[[bin]]
+name = "sqrub"
+bench = false
+
 [[bench]]
 name = "rewrite"
 harness = false

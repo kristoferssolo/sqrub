@@ -64,6 +64,11 @@ install:
 watch:
     bacon
 
+# Run the benchmarks, passing ARGS to Criterion, e.g. `just bench --save-baseline main`
+[group("development")]
+bench *ARGS:
+    cargo bench --all-features -- {{ ARGS }}
+
 # Show dependency updates without modifying Cargo.lock
 [group("dependencies")]
 outdated:

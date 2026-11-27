@@ -5,6 +5,7 @@ mod cli;
 use crate::cli::{Cli, Level};
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, Report};
+use rlimit::increase_nofile_limit;
 use sqrub::{
     Error, ExternalFormatter, QueryDiagnostic, RewriteError, Rewriter, SqlFormatter, rust_files,
 };
@@ -17,6 +18,10 @@ use std::{
 };
 
 fn main() -> ExitCode {
+    // Each formatter running in parallel holds about six descriptors, which
+    // can outgrow the default soft limit on machines with many cores. If this
+    // fails, a formatter that can't start reports it
+    let _ = increase_nofile_limit(u64::MAX);
     let cli = Cli::parse();
     match run(&cli) {
         Ok(outcome) => outcome.into(),

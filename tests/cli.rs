@@ -7,6 +7,8 @@ use tempfile::TempDir;
 
 const UPPERCASE: &str = "tr '[:lower:]' '[:upper:]'";
 const ONE_WORD_PER_LINE: &str = r"tr ' ' '\n'";
+/// Fails while another copy runs, like a wrapper with a fixed scratch file
+const ONE_AT_A_TIME: &str = "sh -c 'mkdir lock || exit 1; tr a-z A-Z; sleep 0.05; rmdir lock'";
 
 const UNFORMATTED: &str = r#"fn main() {
     sqlx::query!("select 1");
@@ -111,6 +113,21 @@ fn missing_input_exits_2_after_formatting_the_rest() {
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr(&output).contains("failed to find Rust files"));
     assert_eq!(project.main_rs(), FORMATTED);
+}
+
+#[test]
+fn jobs_limits_concurrent_formatters() {
+    let main_rs = |keyword: &str| {
+        let queries = (1..=8)
+            .map(|n| format!("    sqlx::query!(\"{keyword} {n}\");"))
+            .collect::<Vec<_>>();
+        format!("fn main() {{\n{}\n}}\n", queries.join("\n"))
+    };
+    let project = Project::new(&main_rs("select"));
+    let output = project.sqrub(&["--jobs", "1", "-f", ONE_AT_A_TIME]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(project.main_rs(), main_rs("SELECT"));
 }
 
 #[test]

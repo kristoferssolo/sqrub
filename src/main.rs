@@ -5,6 +5,7 @@ mod cli;
 use crate::cli::{Cli, Level};
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, Report};
+use rayon::ThreadPoolBuilder;
 use rlimit::increase_nofile_limit;
 use sqrub::{
     Error, ExternalFormatter, QueryDiagnostic, RewriteError, Rewriter, SqlFormatter, rust_files,
@@ -33,6 +34,12 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<Outcome, Error> {
+    if let Some(jobs) = cli.jobs {
+        ThreadPoolBuilder::new()
+            .num_threads(jobs.get())
+            .build_global()
+            .map_err(Error::ThreadPool)?;
+    }
     let formatter = ExternalFormatter::new(cli.formatter.clone(), cli.ignore_exit_code);
     let mut rewriter = Rewriter::new(formatter, cli.min_hashes).map_err(Error::Grammar)?;
     let level = cli.verbosity.level();

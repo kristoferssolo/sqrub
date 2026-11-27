@@ -6,6 +6,7 @@ use crate::{
     rewrite::{QueryError, QueryFailure},
 };
 use miette::{Diagnostic, NamedSource, SourceSpan};
+use rayon::ThreadPoolBuildError;
 use std::{io, path::PathBuf, sync::Arc};
 use thiserror::Error;
 
@@ -16,6 +17,8 @@ pub enum Error {
     #[error("failed to run the formatter")]
     #[diagnostic(help("check that the command is installed and on PATH"))]
     Formatter(#[source] FormatterError),
+    #[error("failed to start the formatter threads")]
+    ThreadPool(#[source] ThreadPoolBuildError),
     #[error("failed to find Rust files")]
     Walk(#[from] ignore::Error),
     #[error("failed to read {}", path.display())]
